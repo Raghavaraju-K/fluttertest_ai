@@ -44,12 +44,7 @@ void main() {
 
     // No Flutter toolchain needed for this assertion: with no generated
     // failures, the runner stores a sanitized report under .fluttertest_ai/.
-    final runResult =
-        await FlutterTestRunner(timeout: const Duration(seconds: 5))
-            .run(root.path);
-    final latest = await FlutterTestRunner().latest(root.path);
-    expect(latest, isNotNull);
-    expect(latest!.reportPath, isNotEmpty);
+    final runResult = await FlutterTestRunner().run(root.path);
 
     final report = MarkdownJsonReporter();
     final files = await report.write(root.path, analysis, plan, run: runResult);

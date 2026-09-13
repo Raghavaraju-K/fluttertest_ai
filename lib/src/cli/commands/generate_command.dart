@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:args/command_runner.dart';
 import '../../generation/dart_test_writer.dart';
 import '../../generation/test_plan_builder.dart';
-import '../../project/models.dart';
+import '../../project/plan_models.dart';
 import '../project_service.dart';
 
 class GenerateCommand extends Command<int> {

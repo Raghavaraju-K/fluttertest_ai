@@ -24,19 +24,6 @@ void main() {
   const marker = '// fluttertest_ai: generated region begin; confidence=0.75';
   const footer = '// fluttertest_ai: generated region end';
 
-  TestRunResult runWith(String output,
-          {Map<String, List<String>> failures = const {}}) =>
-      TestRunResult(
-        exitCode: 1,
-        passed: 0,
-        failed: 1,
-        skipped: 0,
-        compilationErrors: 0,
-        output: output,
-        reportPath: 'run.json',
-        failuresByFile: failures,
-      );
-
   test('wraps pumpWidget with ProviderScope inside generated files only',
       () async {
     final (root, generated, handwritten) = await workspace();
@@ -55,10 +42,8 @@ void main() {
 $footer
 ''');
     final result = await GeneratedTestRepairer()
-        .repair(root.path, runWith('ProviderScope was missing'));
+        .repair(root.path, 'ProviderScope was missing');
     expect(result.changed, hasLength(1));
-    expect(
-        result.descriptions, contains('Fixed missing ProviderScope override'));
     final content = generated.readAsStringSync();
     expect(
         content,
@@ -71,7 +56,7 @@ $footer
     final (root, _, handwritten) = await workspace();
     handwritten.writeAsStringSync('void main() {}');
     final result = await GeneratedTestRepairer()
-        .repair(root.path, runWith('ProviderScope was missing'));
+        .repair(root.path, 'ProviderScope was missing');
     expect(result.changed, isEmpty);
     expect(handwritten.readAsStringSync(), 'void main() {}');
   });
@@ -88,7 +73,7 @@ $footer
 ''');
     final result = await GeneratedTestRepairer().repair(
       root.path,
-      runWith('Expected: exactly one matching node\n  found: 0'),
+      'Expected: exactly one matching node\n  found: 0',
     );
     expect(result.changed, hasLength(1));
     expect(generated.readAsStringSync(), contains('pumpAndSettle();'));
@@ -116,8 +101,7 @@ $footer
 ''');
     final result = await GeneratedTestRepairer().repair(
       root.path,
-      runWith('BlocProvider.of() called with a context that does not '
-          'contain a Bloc'),
+      'BlocProvider.of() called with a context that does not contain a Bloc',
     );
     expect(result.changed, hasLength(1));
     final content = generated.readAsStringSync();

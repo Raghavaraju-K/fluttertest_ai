@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../project/plan_models.dart';
 import 'test_failure_parser.dart';
 
 class FlutterTestRunner {
@@ -44,7 +45,8 @@ class FlutterTestRunner {
     return result;
   }
 
-  String _sanitize(String text) => text.replaceAll(
-      RegExp(r'(?im)(api[_-]?key|token|secret|password)\s*[=:]\s*[^\s]+'),
-      r'$1=[REDACTED]');
+  String _sanitize(String text) => text.replaceAllMapped(
+      RegExp(r'(api[_-]?key|token|secret|password)\s*[=:]\s*\S+',
+          caseSensitive: false, multiLine: true),
+      (match) => '${match.group(1)}=[REDACTED]');
 }

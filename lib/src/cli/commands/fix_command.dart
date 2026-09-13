@@ -1,8 +1,7 @@
-import 'dart:io';
 import 'package:args/command_runner.dart';
 import '../../execution/flutter_test_runner.dart';
 import '../../execution/generated_test_repairer.dart';
-import '../../project/models.dart';
+import '../../project/plan_models.dart';
 
 class FixCommand extends Command<int> {
   FixCommand({GeneratedTestRepairer? repairer, FlutterTestRunner? runner})
