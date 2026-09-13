@@ -1,59 +1,42 @@
+import 'dart:io';
 import 'package:args/command_runner.dart';
-
 import '../../execution/flutter_test_runner.dart';
 import '../../execution/generated_test_repairer.dart';
-import '../../reporting/console_reporter.dart';
+import '../../project/models.dart';
 
 class FixCommand extends Command<int> {
   FixCommand({GeneratedTestRepairer? repairer, FlutterTestRunner? runner})
       : _repairer = repairer ?? GeneratedTestRepairer(),
         _runner = runner ?? FlutterTestRunner() {
-    argParser.addOption(
-      'attempts',
-      defaultsTo: '3',
-      help: 'Maximum repair attempts (default: 3).',
-    );
+    argParser.addOption('attempts', defaultsTo: '3');
   }
   final GeneratedTestRepairer _repairer;
   final FlutterTestRunner _runner;
-
   @override
   String get name => 'fix';
-
   @override
   String get description =>
       'Apply safe repairs to generated tests and rerun them.';
-
   @override
   Future<int> run() async {
-    final rest = argResults?.rest ?? const <String>[];
-    final root = rest.isEmpty ? '.' : rest.first;
-    final attempts = int.tryParse(argResults?['attempts'] as String) ?? 3;
-    final reporter = ConsoleReporter();
-    reporter.banner();
-
-    var result = await _runner.run(root);
+    final attempts = int.tryParse(argResults!['attempts'] as String) ?? 3;
+    TestRunResult result = await _runner.run('.');
     for (var attempt = 0; attempt < attempts && !result.succeeded; attempt++) {
-      reporter.section('Repairing generated tests (attempt ${attempt + 1})...');
-      final repair = await _repairer.repair(root, result);
-      for (final description in repair.descriptions) {
-        reporter.line(description);
-      }
+      final repair = await _repairer.repair('.', result.output);
       for (final file in repair.changed) {
-        reporter.line(file);
+        print('✓ Repaired $file');
       }
       for (final item in repair.unrepaired) {
-        reporter.line(item, ok: null);
+        print('– $item');
       }
       if (repair.changed.isEmpty) break;
-      reporter.section('Re-running repaired tests...');
-      result = await _runner.run(root);
+      result = await _runner.run('.');
     }
-    reporter.run(result);
-    if (!result.succeeded) {
-      print('Tests could not be safely repaired; review them manually.');
+    if (result.succeeded) {
+      print('✓ Re-ran tests: ${result.passed} passed');
+    } else {
+      print('✗ Tests could not be safely repaired');
     }
-    print('Report: ${result.reportPath}');
     return result.exitCode;
   }
 }

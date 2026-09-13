@@ -1,5 +1,4 @@
 import 'dart:io';
-
 import 'package:yaml/yaml.dart';
 
 class PubspecReader {
@@ -14,7 +13,7 @@ class PubspecReader {
     if (value is YamlMap) {
       return {
         for (final entry in value.entries)
-          entry.key.toString(): _plain(entry.value),
+          entry.key.toString(): _plain(entry.value)
       };
     }
     if (value is YamlList) return value.map(_plain).toList();

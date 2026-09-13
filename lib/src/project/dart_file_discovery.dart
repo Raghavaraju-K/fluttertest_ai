@@ -7,8 +7,10 @@ class DartFileDiscovery {
     if (!await lib.exists()) return [];
     final files = <File>[];
     await for (final entity in lib.list(recursive: true, followLinks: false)) {
-      if (entity is File && entity.path.endsWith('.dart')) {
-        if (_isGeneratedOutput(entity.path)) continue;
+      if (entity is File &&
+          entity.path.endsWith('.dart') &&
+          !entity.path.endsWith('.g.dart') &&
+          !entity.path.endsWith('.freezed.dart')) {
         files.add(entity);
       }
     }
@@ -18,26 +20,10 @@ class DartFileDiscovery {
   Future<List<File>> discoverTests(String root) async {
     final test = Directory(p.join(root, 'test'));
     if (!await test.exists()) return [];
-    final files = <File>[];
-    await for (final entity in test.list(recursive: true, followLinks: false)) {
-      if (entity is File && entity.path.endsWith('_test.dart')) {
-        files.add(entity);
-      }
-    }
-    return files;
-  }
-
-  /// Build artifacts and generated sources are never analyzed.
-  bool _isGeneratedOutput(String path) {
-    final segments = p.split(path).map((segment) => segment).toSet();
-    return segments.intersection(const {
-          '.dart_tool',
-          'build',
-          '.git',
-          'generated_plugin_registrant.dart',
-        }).isNotEmpty ||
-        path.endsWith('.g.dart') ||
-        path.endsWith('.freezed.dart') ||
-        path.endsWith('.gr.dart');
+    return test
+        .list(recursive: true)
+        .where((e) => e is File && e.path.endsWith('_test.dart'))
+        .cast<File>()
+        .toList();
   }
 }

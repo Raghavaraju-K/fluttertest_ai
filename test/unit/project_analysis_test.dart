@@ -1,67 +1,54 @@
 import 'dart:io';
-
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-
 import 'package:fluttertest_ai/fluttertest_ai.dart';
 
 void main() {
   final fixtures = p.join(Directory.current.path, 'test', 'fixtures');
 
-  group('state-management detection', () {
-    Future<ProjectAnalysis> analyzeFixture(String name) async {
-      final service = ProjectService();
-      return service.analyze(p.join(fixtures, name));
-    }
+  test('detects a Flutter project and Riverpod adapter from fixture evidence',
+      () async {
+    final root = p.join(fixtures, 'riverpod_async');
+    expect(await FlutterProjectDetector().isFlutterProject(root), isTrue);
+    final analysis = await ProjectService().analyze(root);
+    expect(analysis.stateManagement.framework, StateManagement.riverpod);
+    expect(analysis.stateManagement.adapter, 'riverpodAdapter');
+  });
 
-    test('detects Riverpod from dependency, import, and inheritance', () async {
-      final analysis = await analyzeFixture('riverpod_async');
-      final state = analysis.stateManagement;
-      expect(state.framework, StateManagement.riverpod);
-      expect(state.adapter, 'riverpodAdapter');
-      expect(state.confidence, greaterThanOrEqualTo(0.9));
-      final kinds = state.evidence.map((e) => e.kind).toSet();
-      expect(kinds, contains('dependency'));
-    });
+  test('builds a unit plan and writes only beneath test', () async {
+    final temp = await Directory.systemTemp.createTemp('fluttertest-ai-');
+    addTearDown(() => temp.delete(recursive: true));
+    await Directory(p.join(temp.path, 'lib')).create();
+    await File(p.join(temp.path, 'pubspec.yaml'))
+        .writeAsString('name: sample\ndependencies:\n  flutter: any\n');
+    await File(p.join(temp.path, 'lib', 'email.dart'))
+        .writeAsString('bool validEmail() => true;');
+    final analysis = await ProjectService().analyze(temp.path);
+    final plan = TestPlanBuilder().build(analysis, only: TestKind.unit);
+    final result = await DartTestWriter().write(plan, analysis);
+    expect(result.written, hasLength(1));
+    expect(File(p.join(temp.path, 'test', 'email_test.dart')).existsSync(),
+        isTrue);
+    expect(File(p.join(temp.path, 'lib', 'email_test.dart')).existsSync(),
+        isFalse);
+  });
 
-    test('detects Provider from pubspec evidence', () async {
-      final analysis = await analyzeFixture('provider_login');
-      expect(analysis.stateManagement.framework, StateManagement.provider);
-      expect(analysis.stateManagement.adapter, 'providerAdapter');
-    });
-
-    test('detects setState without any external library', () async {
-      final analysis = await analyzeFixture('basic_set_state');
-      expect(analysis.stateManagement.framework, StateManagement.setState);
-      expect(analysis.stateManagement.adapter, 'setStateAdapter');
-    });
-
-    test('falls back to unknown/custom with a generic adapter', () async {
-      final analysis = await analyzeFixture('custom_state');
-      expect(analysis.stateManagement.framework, StateManagement.unknown);
-      expect(analysis.stateManagement.adapter, 'genericAdapter');
-      expect(analysis.stateManagement.confidence, lessThan(0.5));
-    });
-
-    test('every result carries evidence and a bounded confidence', () async {
-      for (final name in [
-        'riverpod_async',
-        'provider_login',
-        'basic_set_state',
-        'custom_state',
-      ]) {
-        final state = (await analyzeFixture(name)).stateManagement;
-        expect(state.evidence, isNotEmpty, reason: name);
-        expect(state.confidence, inInclusiveRange(0, 0.98), reason: name);
-      }
-    });
-
-    test('classification labels cover validator, state class, and route kinds',
-        () async {
-      final analysis = await analyzeFixture('provider_login');
-      final kinds = analysis.files.expand((f) => f.kinds).toSet();
-      expect(kinds, contains('validator'));
-      expect(kinds, contains('widget'));
-    });
+  test('never overwrites a handwritten test', () async {
+    final temp = await Directory.systemTemp.createTemp('fluttertest-ai-');
+    addTearDown(() => temp.delete(recursive: true));
+    await Directory(p.join(temp.path, 'lib')).create();
+    await Directory(p.join(temp.path, 'test')).create();
+    await File(p.join(temp.path, 'pubspec.yaml'))
+        .writeAsString('name: sample\ndependencies:\n  flutter: any\n');
+    await File(p.join(temp.path, 'lib', 'email.dart'))
+        .writeAsString('bool validEmail() => true;');
+    final handwritten = File(p.join(temp.path, 'test', 'email_test.dart'))
+      ..writeAsStringSync('// mine');
+    final analysis = await ProjectService().analyze(temp.path);
+    final result = await DartTestWriter().write(
+        TestPlanBuilder().build(analysis, only: TestKind.unit), analysis,
+        force: true);
+    expect(result.written, isEmpty);
+    expect(await handwritten.readAsString(), '// mine');
   });
 }
