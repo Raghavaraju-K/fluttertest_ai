@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1]
+
+### Fixed
+
+- Widget-test generation asserted that every static string found inside a
+  `Text(...)` was visible immediately after the first `pump()`, with no
+  check for whether that `Text` was conditionally rendered. Any text behind
+  a collection-`if`, an `if`/`else`, a ternary, a `??`, a loop, or a
+  `switch` produced a `find.text(...)` assertion that failed the instant
+  the gating condition started out false (e.g. `if (_submitted)
+  Text('Signed in')` when `_submitted` starts `false`) — a pattern common
+  to conditionally-rendered error/empty/loading/success states in real
+  apps. `DartSourceAnalyzer` now walks the AST ancestor chain of every
+  candidate node up to its enclosing function/method body, and only feeds
+  `visibleTexts`, `keys`, `buttonTypes`, `textFieldTypes`/`hasTextField`,
+  `hasForm`, and `loadingIndicators` when the node is unconditionally
+  built. The same conditional-render bug affected keys (`findsOneWidget`
+  is even stricter than the text case's `findsWidgets`), buttons, text
+  fields, forms, and loading indicators, so all six signals are fixed
+  together rather than only the text case.
+
 ## [0.2.0]
 
 Corrective release. 0.1.0 generated no unit tests at all, and only a single
@@ -108,6 +129,7 @@ fixed and verified end to end against real Flutter applications.
 - Comprehensive test suite with fixture projects for each supported state management approach
 - Support for Windows, macOS, and Linux
 
-[Unreleased]: https://github.com/Raghavaraju-K/fluttertest_ai/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Raghavaraju-K/fluttertest_ai/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/Raghavaraju-K/fluttertest_ai/compare/v0.2.0...v0.2.1
 [0.1.0]: https://github.com/Raghavaraju-K/fluttertest_ai/releases/tag/v0.1.0
 

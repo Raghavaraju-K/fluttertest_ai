@@ -1,6 +1,6 @@
 name: fluttertest_ai
 description: A local-first CLI that analyzes Flutter apps and generates conservative, runnable tests without an API key.
-version: 0.2.0
+version: 0.2.1
 repository: https://github.com/Raghavaraju-K/fluttertest_ai
 homepage: https://github.com/Raghavaraju-K/fluttertest_ai
 issue_tracker: https://github.com/Raghavaraju-K/fluttertest_ai/issues

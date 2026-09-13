@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
+import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 import '../project/dart_symbols.dart';
 import '../project/models.dart';
@@ -164,7 +165,8 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
-    _recordCreation(node.constructorName.type.name2.lexeme, node.argumentList);
+    _recordCreation(
+        node.constructorName.type.name2.lexeme, node.argumentList, node);
     super.visitInstanceCreationExpression(node);
   }
 
@@ -187,7 +189,7 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
     // for buttonTypes/hasForm/hasTextField/loadingIndicators/hasMaterial to
     // work outside of purely-const widget trees.
     if (node.target == null && _looksLikeTypeName(methodName)) {
-      _recordCreation(methodName, node.argumentList);
+      _recordCreation(methodName, node.argumentList, node);
     }
     super.visitMethodInvocation(node);
   }
@@ -197,7 +199,7 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
       name.codeUnitAt(0) >= 0x41 &&
       name.codeUnitAt(0) <= 0x5A;
 
-  void _recordCreation(String name, ArgumentList argumentList) {
+  void _recordCreation(String name, ArgumentList argumentList, AstNode node) {
     creationNames.add(name);
     if (const {
       'MaterialApp',
@@ -211,29 +213,44 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
     if (name == 'CupertinoApp' || name.startsWith('Cupertino')) {
       hasCupertino = true;
     }
-    if (const {
-      'ElevatedButton',
-      'TextButton',
-      'OutlinedButton',
-      'FilledButton',
-      'IconButton',
-      'FloatingActionButton'
-    }.contains(name)) {
+
+    // Every signal below is asserted by the widget-test generator as
+    // unconditionally present on first paint (`findsOneWidget` /
+    // `findsWidgets` immediately after the first `pump()`). A node whose
+    // build is gated by a branch, loop, or null-coalescing operator is not
+    // guaranteed to exist at that point — e.g. `if (_submitted)
+    // Text('Signed in')` never builds on the initial (false) state — so it
+    // must not feed one of those signals. `hasAsyncBuilder` is excluded from
+    // this gating: it only drives an advisory note, never a `find.*`
+    // assertion, so its accuracy as "a FutureBuilder/StreamBuilder exists
+    // somewhere in this file" is unaffected by where it is built.
+    final isConditional = _isConditionallyBuilt(node);
+
+    if (!isConditional &&
+        const {
+          'ElevatedButton',
+          'TextButton',
+          'OutlinedButton',
+          'FilledButton',
+          'IconButton',
+          'FloatingActionButton'
+        }.contains(name)) {
       buttonTypes.add(name);
     }
-    if (name == 'TextField' || name == 'TextFormField') {
+    if (!isConditional && (name == 'TextField' || name == 'TextFormField')) {
       hasTextField = true;
       textFieldTypes.add(name);
     }
-    if (name == 'Form') hasForm = true;
-    if (const {'LinearProgressIndicator', 'CircularProgressIndicator'}
-        .contains(name)) {
+    if (!isConditional && name == 'Form') hasForm = true;
+    if (!isConditional &&
+        const {'LinearProgressIndicator', 'CircularProgressIndicator'}
+            .contains(name)) {
       loadingIndicators.add(name);
     }
     if (name == 'FutureBuilder' || name == 'StreamBuilder') {
       hasAsyncBuilder = true;
     }
-    if (name == 'Text') {
+    if (!isConditional && name == 'Text') {
       for (final argument in argumentList.arguments) {
         if (argument is StringLiteral &&
             argument.stringValue != null &&
@@ -243,12 +260,49 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
         }
       }
     }
-    if (name == 'ValueKey' && argumentList.arguments.isNotEmpty) {
+    if (!isConditional &&
+        name == 'ValueKey' &&
+        argumentList.arguments.isNotEmpty) {
       final first = argumentList.arguments.first;
       if (first is StringLiteral && first.stringValue != null) {
         keys.add(first.stringValue!);
       }
     }
+  }
+
+  /// Walks up from a candidate creation node to the enclosing function/method
+  /// body, returning `true` if any ancestor in between makes the node's
+  /// construction conditional on runtime state rather than guaranteed on
+  /// first build.
+  ///
+  /// Stops at the first [FunctionBody] so it never escapes into an unrelated
+  /// enclosing method/function (e.g. a sibling `build()` on the same class).
+  /// A loop is treated as conditional because its body may execute zero
+  /// times; a null-aware spread (`...?`) is treated as conditional because
+  /// the spread source may be null, contributing no elements.
+  bool _isConditionallyBuilt(AstNode node) {
+    AstNode? current = node.parent;
+    while (current != null) {
+      if (current is FunctionBody) return false;
+      if (current is IfStatement ||
+          current is IfElement ||
+          current is ConditionalExpression ||
+          current is SwitchStatement ||
+          current is SwitchExpression ||
+          current is ForStatement ||
+          current is ForElement ||
+          current is WhileStatement ||
+          current is DoStatement) {
+        return true;
+      }
+      if (current is SpreadElement && current.isNullAware) return true;
+      if (current is BinaryExpression &&
+          current.operator.type == TokenType.QUESTION_QUESTION) {
+        return true;
+      }
+      current = current.parent;
+    }
+    return false;
   }
 }
 
