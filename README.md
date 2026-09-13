@@ -34,6 +34,30 @@ cd fluttertest_ai
 dart pub global activate --source path .
 ```
 
+### Add pub's global executables to your PATH
+
+`dart pub global activate` installs the `fluttertest-ai` executable into pub's global cache, not onto your `PATH`. If `fluttertest-ai` returns "command not found" after activation, add the cache's `bin` directory to your `PATH`.
+
+**macOS / Linux** — the cache lives at `~/.pub-cache/bin`. Add it to your shell profile (`~/.zshrc` for zsh, the macOS default; `~/.bashrc` or `~/.bash_profile` for bash):
+
+```bash
+echo 'export PATH="$PATH:$HOME/.pub-cache/bin"' >> ~/.zshrc
+```
+
+**Windows** — the cache lives at `%LOCALAPPDATA%\Pub\Cache\bin`. Add it to your `PATH` via System Properties > Environment Variables, or from PowerShell:
+
+```powershell
+setx PATH "$env:PATH;$env:LOCALAPPDATA\Pub\Cache\bin"
+```
+
+Restart your shell (or re-source the profile, e.g. `source ~/.zshrc`) for the change to take effect. Verify it worked by running:
+
+```bash
+fluttertest-ai --help
+```
+
+If you see usage output instead of "command not found", the PATH is set up correctly.
+
 ## Quick Start
 
 ```bash
