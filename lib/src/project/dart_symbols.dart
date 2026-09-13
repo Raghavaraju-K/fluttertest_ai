@@ -27,12 +27,16 @@ class FunctionInfo {
     required this.returnTypeSource,
     required this.parameters,
     required this.isStatic,
+    this.isGetter = false,
+    this.isSetter = false,
   });
 
   final String name;
   final String returnTypeSource;
   final List<ParameterInfo> parameters;
   final bool isStatic;
+  final bool isGetter;
+  final bool isSetter;
 
   bool get isAsynchronous =>
       returnTypeSource.startsWith('Future') ||
@@ -105,8 +109,14 @@ class ClassInfo {
 
   /// True when `ClassName()` is a safe, complete call: a public unnamed
   /// constructor without required parameters.
+  ///
+  /// A class with no declared constructors at all gets an implicit,
+  /// no-arg public unnamed constructor from Dart itself, so an empty
+  /// [constructors] list is safely constructible too. A class that only
+  /// declares a named or private constructor is not.
   bool get isPubliclyConstructible {
     if (!isPublic || isAbstract) return false;
+    if (constructors.isEmpty) return true;
     final ctor = unnamedConstructor;
     return ctor != null && !ctor.hasRequiredParameters;
   }

@@ -15,7 +15,8 @@ class FlutterTestRunner {
       await for (final entity in testRoot.list(recursive: true)) {
         if (entity is File &&
             entity.path.endsWith('_test.dart') &&
-            (await entity.readAsString()).contains('fluttertest_ai: generated')) {
+            (await entity.readAsString())
+                .contains('fluttertest_ai: generated')) {
           generated.add(p.relative(entity.path, from: root));
         }
       }

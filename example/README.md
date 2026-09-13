@@ -40,13 +40,19 @@ fluttertest-ai report
 
 ## What Gets Generated
 
+Generated test paths mirror the source path under `lib/`, moved under `test/`. Unit tests
+are suffixed `_test.dart`; widget tests are suffixed `_widget_test.dart`. For example:
+
+- `lib/counter.dart` -> `test/counter_widget_test.dart` (widget test)
+- `lib/core/validators.dart` -> `test/core/validators_test.dart` (unit test)
+
 After running `fluttertest-ai generate`, you'll find new test files in the `test/` directory:
 
 ```
 test/
-├── login_screen_widget_test.dart    # Widget tests for LoginScreen
-├── auth_notifier_test.dart         # Unit tests for AuthNotifier
-└── email_validator_test.dart       # Unit tests for EmailValidator
+├── counter_widget_test.dart      # Widget test for the widget(s) in lib/counter.dart
+└── core/
+    └── validators_test.dart      # Unit tests for lib/core/validators.dart
 ```
 
 Each generated file includes:
@@ -57,27 +63,16 @@ Each generated file includes:
 ## Example Output
 
 ```text
-FlutterTest AI v0.1.0
-
 Analyzing Flutter project...
-✓ Flutter project detected
-✓ State management: Provider
-✓ Screens detected: 3
-✓ Testable classes detected: 8
-✓ Existing tests found: 2
+State management: setState (85% confidence)
+  behavior: setState() called in 1 file(s)
+  class inheritance: _MyHomePageState extends State
 
 Generating tests...
-✓ test/login_screen_widget_test.dart
-✓ test/auth_notifier_test.dart
-✓ test/email_validator_test.dart
+✓ test/counter_widget_test.dart
 
 Running generated tests...
-✓ 12 passed
-✗ 1 failed
-
-Repairing generated tests...
-✓ Fixed missing ProviderScope override
-✓ Re-ran tests: 13 passed
+✓ 1 passed
 ```
 
 ## Next Steps
@@ -90,7 +85,7 @@ Repairing generated tests...
 
 ## Learn More
 
-- [Full documentation](https://github.com/example/fluttertest_ai#readme)
+- [Full documentation](https://github.com/Raghavaraju-K/fluttertest_ai#readme)
 - [pub.dev package](https://pub.dev/packages/fluttertest_ai)
-- [Issue tracker](https://github.com/example/fluttertest_ai/issues)
+- [Issue tracker](https://github.com/Raghavaraju-K/fluttertest_ai/issues)
 

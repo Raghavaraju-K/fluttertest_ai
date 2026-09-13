@@ -8,13 +8,15 @@ import '../project/models.dart';
 class DartSourceAnalyzer {
   DartFileInfo analyze(File file) {
     final content = file.readAsStringSync();
-    final result = parseString(content: content, path: file.path, throwIfDiagnostics: false);
+    final result = parseString(
+        content: content, path: file.path, throwIfDiagnostics: false);
     final visitor = _SourceVisitor();
     result.unit.accept(visitor);
     return DartFileInfo(
       path: file.path,
       isWidget: visitor.classDetails.any((c) => c.isWidget),
-      isLogic: visitor.topLevelFunctions.isNotEmpty || visitor.classDetails.any((c) => !c.isWidget),
+      isLogic: visitor.topLevelFunctions.isNotEmpty ||
+          visitor.classDetails.any((c) => !c.isWidget),
       classes: visitor.classDetails.map((c) => c.name).toList(),
       functions: visitor.topLevelFunctions.map((f) => f.name).toList(),
       imports: visitor.imports,
@@ -85,35 +87,28 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
     var hasFromJsonFactory = false;
     for (final member in node.members) {
       if (member is ConstructorDeclaration) {
-        final params = <ParameterInfo>[];
-        for (final p in member.parameters.parameters) {
-          final typeStr = p.toString();
-          params.add(ParameterInfo(
-            name: p.name?.lexeme ?? '',
-            typeSource: typeStr,
-            isRequiredPositional: p.isPositional && p.isRequired,
-            isRequiredNamed: p.isNamed && p.isRequired,
-            isNullable: typeStr.endsWith('?'),
-          ));
-        }
-        constructors.add(ConstructorInfo(member.name?.lexeme, params, member.constKeyword != null));
-      } else if (member is MethodDeclaration) {
-        final methodName = member.name.lexeme;
-        if (member.isStatic && methodName == 'fromJson' && member.returnType != null) {
+        if (member.factoryKeyword != null &&
+            member.name?.lexeme == 'fromJson') {
           hasFromJsonFactory = true;
         }
-        if (member.isStatic) continue;
+        final params = <ParameterInfo>[];
+        for (final p in member.parameters.parameters) {
+          params.add(_parameterInfo(p));
+        }
+        constructors.add(ConstructorInfo(
+            member.name?.lexeme, params, member.constKeyword != null));
+      } else if (member is MethodDeclaration) {
+        final methodName = member.name.lexeme;
+        if (member.isStatic &&
+            methodName == 'fromJson' &&
+            member.returnType != null) {
+          hasFromJsonFactory = true;
+        }
+        if (methodName.startsWith('_')) continue;
         final params = <ParameterInfo>[];
         if (member.parameters != null) {
           for (final p in member.parameters!.parameters) {
-            final typeStr = p.toString();
-            params.add(ParameterInfo(
-              name: p.name?.lexeme ?? '',
-              typeSource: typeStr,
-              isRequiredPositional: p.isPositional && p.isRequired,
-              isRequiredNamed: p.isNamed && p.isRequired,
-              isNullable: typeStr.endsWith('?'),
-            ));
+            params.add(_parameterInfo(p));
           }
         }
         methods.add(FunctionInfo(
@@ -121,6 +116,8 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
           returnTypeSource: member.returnType?.toString() ?? 'dynamic',
           parameters: params,
           isStatic: member.isStatic,
+          isGetter: member.isGetter,
+          isSetter: member.isSetter,
         ));
       }
     }
@@ -131,7 +128,8 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
       widgetSuperkind: widgetSuperkind,
       constructors: constructors,
       methods: methods,
-      isChangeNotifier: _ext(superclassName, ['ChangeNotifier', 'ValueNotifier']),
+      isChangeNotifier:
+          _ext(superclassName, ['ChangeNotifier', 'ValueNotifier']),
       isCubit: _ext(superclassName, ['Cubit', 'BlocCubit']),
       isBloc: _ext(superclassName, ['Bloc', 'BlocBase']),
       isStateNotifier: _ext(superclassName, ['StateNotifier']),
@@ -144,19 +142,15 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitFunctionDeclaration(FunctionDeclaration node) {
-    if (node.isGetter || node.isSetter) { super.visitFunctionDeclaration(node); return; }
+    if (node.isGetter || node.isSetter) {
+      super.visitFunctionDeclaration(node);
+      return;
+    }
     final params = <ParameterInfo>[];
     final funcParams = node.functionExpression.parameters?.parameters;
     if (funcParams != null) {
       for (final p in funcParams) {
-        final typeStr = p.toString();
-        params.add(ParameterInfo(
-          name: p.name?.lexeme ?? '',
-          typeSource: typeStr,
-          isRequiredPositional: p.isPositional && p.isRequired,
-          isRequiredNamed: p.isNamed && p.isRequired,
-          isNullable: typeStr.endsWith('?'),
-        ));
+        params.add(_parameterInfo(p));
       }
     }
     topLevelFunctions.add(FunctionInfo(
@@ -170,27 +164,7 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
 
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
-    final name = node.constructorName.type.name2.lexeme;
-    creationNames.add(name);
-    if (const {'MaterialApp', 'Scaffold', 'Text', 'AppBar', 'FloatingActionButton'}.contains(name)) hasMaterial = true;
-    if (name == 'CupertinoApp' || name.startsWith('Cupertino')) hasCupertino = true;
-    if (const {'ElevatedButton', 'TextButton', 'OutlinedButton', 'FilledButton', 'IconButton', 'FloatingActionButton'}.contains(name)) buttonTypes.add(name);
-    if (name == 'TextField' || name == 'TextFormField') { hasTextField = true; textFieldTypes.add(name); }
-    if (name == 'Form') hasForm = true;
-    if (const {'LinearProgressIndicator', 'CircularProgressIndicator'}.contains(name)) loadingIndicators.add(name);
-    if (name == 'FutureBuilder' || name == 'StreamBuilder') hasAsyncBuilder = true;
-    if (name == 'Text') {
-      for (final argument in node.argumentList.arguments) {
-        if (argument is StringLiteral && argument.stringValue != null && argument.stringValue!.isNotEmpty) {
-          visibleTexts.add(argument.stringValue!);
-          break;
-        }
-      }
-    }
-    if (name == 'ValueKey' && node.argumentList.arguments.isNotEmpty) {
-      final first = node.argumentList.arguments.first;
-      if (first is StringLiteral && first.stringValue != null) keys.add(first.stringValue!);
-    }
+    _recordCreation(node.constructorName.type.name2.lexeme, node.argumentList);
     super.visitInstanceCreationExpression(node);
   }
 
@@ -198,7 +172,145 @@ class _SourceVisitor extends RecursiveAstVisitor<void> {
   void visitMethodInvocation(MethodInvocation node) {
     final methodName = node.methodName.name;
     if (methodName == 'setState') usesSetState = true;
-    if (methodName == 'watch' || methodName == 'read') consumesInheritedState = true;
+    if (methodName == 'watch' || methodName == 'read') {
+      consumesInheritedState = true;
+    }
+    // Without a resolved element model, a bare (no `const`/`new`, no
+    // receiver) call to a PascalCase identifier is syntactically
+    // indistinguishable from a constructor invocation at parse time — the
+    // analyzer's unresolved AST hands these to visitMethodInvocation, not
+    // visitInstanceCreationExpression, unlike `const Foo()`/`new Foo()`.
+    // Widgets are overwhelmingly constructed this way in real code (any
+    // constructor argument that isn't itself a compile-time constant, e.g.
+    // an instance-method tear-off callback, forces the call to be
+    // non-const), so treating this as a widget-name signal too is required
+    // for buttonTypes/hasForm/hasTextField/loadingIndicators/hasMaterial to
+    // work outside of purely-const widget trees.
+    if (node.target == null && _looksLikeTypeName(methodName)) {
+      _recordCreation(methodName, node.argumentList);
+    }
     super.visitMethodInvocation(node);
   }
+
+  bool _looksLikeTypeName(String name) =>
+      name.isNotEmpty &&
+      name.codeUnitAt(0) >= 0x41 &&
+      name.codeUnitAt(0) <= 0x5A;
+
+  void _recordCreation(String name, ArgumentList argumentList) {
+    creationNames.add(name);
+    if (const {
+      'MaterialApp',
+      'Scaffold',
+      'Text',
+      'AppBar',
+      'FloatingActionButton'
+    }.contains(name)) {
+      hasMaterial = true;
+    }
+    if (name == 'CupertinoApp' || name.startsWith('Cupertino')) {
+      hasCupertino = true;
+    }
+    if (const {
+      'ElevatedButton',
+      'TextButton',
+      'OutlinedButton',
+      'FilledButton',
+      'IconButton',
+      'FloatingActionButton'
+    }.contains(name)) {
+      buttonTypes.add(name);
+    }
+    if (name == 'TextField' || name == 'TextFormField') {
+      hasTextField = true;
+      textFieldTypes.add(name);
+    }
+    if (name == 'Form') hasForm = true;
+    if (const {'LinearProgressIndicator', 'CircularProgressIndicator'}
+        .contains(name)) {
+      loadingIndicators.add(name);
+    }
+    if (name == 'FutureBuilder' || name == 'StreamBuilder') {
+      hasAsyncBuilder = true;
+    }
+    if (name == 'Text') {
+      for (final argument in argumentList.arguments) {
+        if (argument is StringLiteral &&
+            argument.stringValue != null &&
+            argument.stringValue!.isNotEmpty) {
+          visibleTexts.add(argument.stringValue!);
+          break;
+        }
+      }
+    }
+    if (name == 'ValueKey' && argumentList.arguments.isNotEmpty) {
+      final first = argumentList.arguments.first;
+      if (first is StringLiteral && first.stringValue != null) {
+        keys.add(first.stringValue!);
+      }
+    }
+  }
+}
+
+/// Builds a [ParameterInfo] from a [FormalParameter], extracting only the
+/// declared type (never the parameter name) so downstream literal synthesis
+/// can match it exactly.
+ParameterInfo _parameterInfo(FormalParameter p) {
+  final type = _resolveParameterType(p);
+  return ParameterInfo(
+    name: p.name?.lexeme ?? '',
+    typeSource: type.source,
+    isRequiredPositional: p.isPositional && p.isRequired,
+    isRequiredNamed: p.isNamed && p.isRequired,
+    isNullable: type.isNullable,
+  );
+}
+
+class _ParameterType {
+  const _ParameterType(this.source, this.isNullable);
+  final String source;
+  final bool isNullable;
+}
+
+/// Resolves the declared type of a [FormalParameter] using only AST
+/// properties, unwrapping [DefaultFormalParameter] (optional/named
+/// parameters) to reach the underlying [NormalFormalParameter] shape.
+_ParameterType _resolveParameterType(FormalParameter parameter) {
+  final normal =
+      parameter is DefaultFormalParameter ? parameter.parameter : parameter;
+
+  if (normal is SimpleFormalParameter) {
+    final type = normal.type;
+    // A plain untyped parameter (`f(x)`) is genuinely `dynamic` in Dart.
+    if (type == null) return const _ParameterType('dynamic', false);
+    return _fromTypeAnnotation(type);
+  }
+  if (normal is FieldFormalParameter) {
+    final type = normal.type;
+    if (type != null) return _fromTypeAnnotation(type);
+    // `this.x` without an explicit type is inferred from the field
+    // declaration, which this visitor does not resolve; treat as unknown
+    // rather than guessing a literal.
+    if (normal.parameters != null) {
+      return _ParameterType('Function', normal.question != null);
+    }
+    return const _ParameterType('unknown', false);
+  }
+  if (normal is SuperFormalParameter) {
+    final type = normal.type;
+    if (type != null) return _fromTypeAnnotation(type);
+    if (normal.parameters != null) {
+      return _ParameterType('Function', normal.question != null);
+    }
+    return const _ParameterType('unknown', false);
+  }
+  if (normal is FunctionTypedFormalParameter) {
+    return _ParameterType('Function', normal.question != null);
+  }
+  return const _ParameterType('unknown', false);
+}
+
+_ParameterType _fromTypeAnnotation(TypeAnnotation type) {
+  final source = type.toSource().replaceAll(RegExp(r'\s+'), ' ').trim();
+  return _ParameterType(source, source.endsWith('?'));
 }

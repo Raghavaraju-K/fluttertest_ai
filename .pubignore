@@ -1,4 +1,5 @@
-# Exclude fixture projects from pub.dev publishing
-# These are standalone Flutter projects used for testing
+# Exclude fixture projects from pub.dev publishing.
+# These are standalone Flutter projects used only by the test suite.
+# example/ is intentionally NOT excluded: pub.dev scores packages for
+# shipping a usable example.
 test/fixtures/
-example/

@@ -51,20 +51,34 @@ class UnitTestGenerator {
     }
     for (final clazz in file.classDetails.where((c) => c.isPublic)) {
       for (final method in clazz.methods) {
-        if (!method.isStatic || method.isOperator || method.isAsynchronous) {
+        if (!method.isStatic ||
+            method.isOperator ||
+            method.isAsynchronous ||
+            method.isSetter) {
           continue;
         }
-        addGroup(_callableTests('${clazz.name}.${method.name}', method),
-            '${clazz.name}.${method.name}');
+        final target = '${clazz.name}.${method.name}';
+        if (method.isGetter) {
+          groups.add(_getterTest(target, method.returnTypeSource));
+          continue;
+        }
+        addGroup(_callableTests(target, method), target);
       }
     }
     for (final clazz in _logic.pureMethodClasses(file)) {
       for (final method in clazz.methods) {
-        if (method.isStatic || method.isOperator || method.isAsynchronous) {
+        if (method.isStatic ||
+            method.isOperator ||
+            method.isAsynchronous ||
+            method.isSetter) {
           continue;
         }
-        addGroup(_callableTests('${clazz.name}().${method.name}', method),
-            '${clazz.name}.${method.name}');
+        final target = '${clazz.name}().${method.name}';
+        if (method.isGetter) {
+          groups.add(_getterTest(target, method.returnTypeSource));
+          continue;
+        }
+        addGroup(_callableTests(target, method), target);
       }
     }
     for (final clazz in _logic.serializableClasses(file)) {
@@ -86,13 +100,36 @@ class UnitTestGenerator {
     final import =
         packageImport(item.source, analysis.root, analysis.projectName);
     final content = '${generatedFileHeader(item.confidence)}'
-        "import 'package:test/test.dart';\n"
+        "import 'package:flutter_test/flutter_test.dart';\n"
         "import '$import';\n\n"
         'void main() {\n'
         '${groups.take(12).join('\n\n')}\n'
         '}\n'
         '// $generatedRegionEnd\n';
     return GenerationOutcome(content, notes: notes);
+  }
+
+  /// Return types safe to assert with `isA<T>()` without risking a
+  /// non-compiling generic or a false assumption about async semantics.
+  static const Set<String> _knownSafeReturnTypes = {
+    'bool',
+    'int',
+    'double',
+    'num',
+    'String',
+    'bool?',
+    'int?',
+    'double?',
+    'num?',
+    'String?',
+  };
+
+  /// Returns the return type to assert with `isA<T>()`, or `null` when the
+  /// type is unknown, `void`, `dynamic`, or asynchronous — in which case the
+  /// caller falls back to a `returnsNormally` no-throw check.
+  String? _typeAssertion(String returnTypeSource) {
+    final type = returnTypeSource.trim();
+    return _knownSafeReturnTypes.contains(type) ? type : null;
   }
 
   String? _callableTests(String target, FunctionInfo function) {
@@ -110,40 +147,97 @@ class UnitTestGenerator {
       if (value == null) return null;
       empty.add(value);
     }
-    final tests = <String>[
-      _callTest(target, typical, 'accepts typical input'),
-      _callTest(target, empty, 'accepts empty input'),
-    ];
+    List<String>? nullable;
     if (function.hasNullableParameter) {
-      final nullableArgs = <String>[
+      nullable = <String>[
         for (var i = 0; i < required.length; i++)
           required[i].isNullable ? 'null' : typical[i],
       ];
-      tests.add(_callTest(
-          target, nullableArgs, 'accepts null for nullable parameters'));
     }
-    return tests.join('\n');
+
+    // Collapse cases that produce byte-identical calls (e.g. a zero-argument
+    // method has no distinct "typical" vs "empty" input, and a single
+    // nullable parameter's "empty" and "null" representations often
+    // coincide) so no two emitted tests share the same body.
+    final seenArgs = <String>{};
+    final cases = <_ArgCase>[];
+    void addCase(List<String> args, _ArgKind kind) {
+      if (!seenArgs.add(args.join('\u0000'))) return;
+      cases.add(_ArgCase(args, kind));
+    }
+
+    addCase(typical, _ArgKind.typical);
+    addCase(empty, _ArgKind.empty);
+    if (nullable != null) addCase(nullable, _ArgKind.nullable);
+
+    final typeAssertion = _typeAssertion(function.returnTypeSource);
+    return cases
+        .map((c) => _callTest(target, c.args, c.kind, typeAssertion))
+        .join('\n\n');
   }
 
-  String _callTest(String target, List<String> args, String label) {
+  String _getterTest(String target, String returnTypeSource) {
+    final typeAssertion = _typeAssertion(returnTypeSource);
+    if (typeAssertion == null) {
+      return '  // Heuristic: a getter has no parameter list; this only checks\n'
+          '  // that reading it does not throw.\n'
+          "  test('$target can be read', () {\n"
+          '    expect(() => $target, returnsNormally);\n'
+          '  });';
+    }
+    return '  // Heuristic: a getter has no parameter list; this only checks\n'
+        '  // that reading it does not throw and yields the declared type.\n'
+        "  test('$target returns a $typeAssertion', () {\n"
+        '    expect($target, isA<$typeAssertion>());\n'
+        '  });';
+  }
+
+  String _labelFor(List<String> args, _ArgKind kind, String? typeAssertion) {
+    if (args.isEmpty) {
+      return typeAssertion == null ? 'is called' : 'returns a $typeAssertion';
+    }
+    if (kind == _ArgKind.nullable || args.contains('null')) {
+      return 'handles null input';
+    }
+    final suffix = kind == _ArgKind.typical ? 'typical input' : 'empty input';
+    return typeAssertion == null
+        ? 'accepts $suffix'
+        : 'returns a $typeAssertion for $suffix';
+  }
+
+  String _callTest(
+      String target, List<String> args, _ArgKind kind, String? typeAssertion) {
+    final label = _labelFor(args, kind, typeAssertion);
     final call = '$target(${args.join(', ')})';
-    return '  // Heuristic: asserts the call succeeds for this input.\n'
+    if (typeAssertion == null) {
+      return '  // Heuristic: asserts the call succeeds for this input.\n'
+          "  test('$target $label', () {\n"
+          '    expect(() => $call, returnsNormally);\n'
+          '  });';
+    }
+    return '  // Heuristic: asserts the call succeeds for this input and\n'
+        '  // returns the declared type.\n'
         "  test('$target $label', () {\n"
-        '    expect(() => $call, returnsNormally);\n'
+        '    expect($call, isA<$typeAssertion>());\n'
         '  });';
   }
 
   String _fromJsonTest(String className) =>
-      '  // Heuristic: fromJson may legitimately reject empty data; this only\n'
-      '  // checks that a successful parse yields the expected type.\n'
+      '  // Heuristic: fromJson may legitimately reject empty data with a\n'
+      '  // thrown error, or legitimately return a $className. Both are\n'
+      '  // acceptable outcomes, but exactly one must actually happen — this\n'
+      '  // always makes one real assertion so the test cannot pass silently.\n'
       "  test('$className.fromJson tolerates an empty map', () {\n"
       '    Object? result;\n'
+      '    var threw = false;\n'
       '    try {\n'
       '      result = $className.fromJson(const <String, dynamic>{});\n'
-      '    } catch (_) {}\n'
-      '    if (result != null) {\n'
-      '      expect(result, isA<$className>());\n'
+      '    } catch (_) {\n'
+      '      threw = true;\n'
       '    }\n'
+      '    expect(threw || result is $className, isTrue,\n'
+      "        reason: '$className.fromJson must either return a "
+      "$className or throw');\n"
       '  });';
 
   String _lifecycleTest(ClassInfo clazz) {
@@ -171,4 +265,14 @@ class UnitTestGenerator {
         '    container.dispose();\n'
         '  });';
   }
+}
+
+/// The provenance of a synthesized argument list, used to pick an honest
+/// test name once byte-identical argument lists have been deduplicated.
+enum _ArgKind { typical, empty, nullable }
+
+class _ArgCase {
+  const _ArgCase(this.args, this.kind);
+  final List<String> args;
+  final _ArgKind kind;
 }

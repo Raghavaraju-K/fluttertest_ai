@@ -35,14 +35,14 @@ class GeneratedTestRepairer {
       if (failureOutput.contains('BlocProvider') &&
           source.contains('BlocBuilder<') &&
           !source.contains('BlocProvider<')) {
-        final blocClass = _extractBlocClass(failureOutput);
+        final blocClass = _extractBlocClass(source);
         if (blocClass != null && _constructible(source, root, blocClass)) {
-          source = source.replaceFirst(
-              'MaterialApp(home:',
+          source = source.replaceFirst('MaterialApp(home:',
               'BlocProvider<$blocClass>(create: (_) => $blocClass(), child: MaterialApp(home:');
           source = source.replaceFirst(
-              ');\n    await tester.pump();',
-              '));\n    await tester.pump();');
+              ');\n    await tester.pump();', '));\n    await tester.pump();');
+          source = source.replaceAll(
+              RegExp(r"import 'package:[^']+/lib/"), "import 'package:");
         }
       }
       if (failureOutput.contains("Target of URI hasn't been found") &&
@@ -61,8 +61,8 @@ class GeneratedTestRepairer {
     return RepairResult(changed, unrepaired);
   }
 
-  String? _extractBlocClass(String failureOutput) {
-    final match = RegExp(r'BlocBuilder<(\w+)').firstMatch(failureOutput);
+  String? _extractBlocClass(String testSource) {
+    final match = RegExp(r'BlocBuilder<(\w+)').firstMatch(testSource);
     return match?.group(1);
   }
 
@@ -72,7 +72,8 @@ class GeneratedTestRepairer {
     final prefix = 'package:$projectName/';
     final importRegex = RegExp("import '(package:[^']+)';");
     for (final match in importRegex.allMatches(testSource)) {
-      final uri = match.group(1)!;
+      final uri = match.group(1)!.replaceFirstMapped(
+          RegExp(r'^(package:[^/]+)/lib/'), (m) => '${m.group(1)}/');
       if (!uri.startsWith(prefix)) continue;
       final file = File(p.join(root, 'lib', uri.substring(prefix.length)));
       if (!file.existsSync()) continue;
@@ -96,7 +97,8 @@ class GeneratedTestRepairer {
     final pubspec = File(p.join(root, 'pubspec.yaml'));
     if (!pubspec.existsSync()) return null;
     final content = pubspec.readAsStringSync();
-    final match = RegExp(r'^name:\s*(.+)$', multiLine: true).firstMatch(content);
+    final match =
+        RegExp(r'^name:\s*(.+)$', multiLine: true).firstMatch(content);
     return match?.group(1)?.trim();
   }
 }

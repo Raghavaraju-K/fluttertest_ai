@@ -25,6 +25,9 @@ class TestPlanBuilder {
         continue;
       }
       final base = p.withoutExtension(libRelative.replaceAll(p.separator, '/'));
+      for (final ioSkip in _logic.ioSkippedClasses(file)) {
+        skipped.add('$relative: ${ioSkip.name} skipped — ${ioSkip.reason}');
+      }
       final emitted = <TestKind>{};
       if ((only == null || only == TestKind.unit) && _logic.isTestable(file)) {
         items.add(TestPlanItem(

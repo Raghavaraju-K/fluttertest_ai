@@ -1,6 +1,8 @@
 # FlutterTest AI
 
-**A local-first CLI that analyzes Flutter apps and generates conservative, runnable tests — no API key required.**
+**Generate, run, and repair Flutter tests automatically.**
+
+A local-first CLI that analyzes Flutter apps and generates conservative, runnable tests — no API key required.
 
 ![Terminal demo placeholder](https://placehold.co/960x400?text=FlutterTest+AI+demo+GIF+placeholder)
 
@@ -12,9 +14,10 @@
 FlutterTest AI scans your Flutter project, detects its state-management approach, and generates runnable unit and widget tests. It works entirely locally — no cloud service, no API key, no configuration files needed.
 
 - **Zero setup**: just `dart pub global activate` and run
-- **State-aware**: detects Riverpod, BLoC, Provider, GetX, Redux, MobX, and more
+- **State-aware**: detects setState, Provider, Riverpod, BLoC/Cubit, GetX, Redux, MobX, ValueNotifier, Signals, and more
 - **Safe by default**: never modifies `lib/`, never overwrites handwritten tests
 - **Privacy-first**: all analysis happens locally; no source code leaves your machine
+
 ## Installation
 
 ### From pub.dev (recommended)
@@ -26,7 +29,7 @@ dart pub global activate fluttertest_ai
 ### From source
 
 ```bash
-git clone https://github.com/example/fluttertest_ai.git
+git clone https://github.com/Raghavaraju-K/fluttertest_ai.git
 cd fluttertest_ai
 dart pub global activate --source path .
 ```
@@ -57,20 +60,146 @@ fluttertest-ai report
 
 ### Example Output
 
+Output from `fluttertest-ai analyze` on a Riverpod app:
+
 ```text
-FlutterTest AI v0.1.0
-
 Analyzing Flutter project...
-✓ Flutter project detected
-✓ State management: Riverpod
-✓ Screens detected: 8
-✓ Testable classes detected: 23
-✓ Existing tests found: 7
+State management: Riverpod (100% confidence, adapter: riverpodAdapter)
+  dependency: flutter_riverpod
+  import: package:flutter_riverpod
+  class inheritance: CounterPage extends ConsumerWidget
+```
 
+Output from `fluttertest-ai analyze` on a default `flutter create` app:
+
+```text
+Analyzing Flutter project...
+State management: setState (85% confidence)
+  behavior: setState() called in 1 file(s)
+  class inheritance: _MyHomePageState extends State
+```
+
+Output from `fluttertest-ai generate` and `fluttertest-ai run`:
+
+```text
 Generating tests...
-✓ test/features/auth/login_screen_test.dart
-✓ test/features/auth/auth_notifier_test.dart
-✓ test/core/email_validator_test.dart
+✓ test/counter_widget_test.dart
+✓ test/core/validators_test.dart
+
+Running generated tests...
+✓ 41 passed
+```
+
+## Supported State Management
+
+| Framework | Detection Method | Generation |
+| --- | --- | --- |
+| setState | `setState()` calls, `State` inheritance | State-aware generation |
+| Provider / ChangeNotifier | Dependency, imports, inheritance | State-aware generation, `MultiProvider` harness |
+| Riverpod | Dependency, imports, `Consumer`/`ConsumerWidget` inheritance | State-aware generation, `ProviderScope` harness |
+| BLoC / Cubit | Dependency, imports, inheritance | State-aware generation, `BlocProvider` harness |
+| GetX | Dependency, imports, `GetBuilder` usage | Conservative generic fallback |
+| Redux | Dependency, imports, `StoreConnector` usage | Conservative generic fallback |
+| MobX | Dependency, imports, `Observer` usage | Conservative generic fallback |
+| ValueNotifier / ValueListenableBuilder | Dependency, imports, `ValueListenableBuilder` usage | State-aware generation |
+| Signals | Dependency, imports | Conservative generic fallback |
+| Unknown / custom | Absence of known evidence | Conservative generic fallback |
+
+## How It Works
+
+```mermaid
+flowchart LR
+  A[Detect project] --> B[Analyze: analyzer AST]
+  B --> C[Detect state management]
+  C --> D[Select adapter]
+  D --> E[Build test plan]
+  E --> F[Generate: unit / widget]
+  F --> G[Run via flutter test]
+  G --> H[Parse failures]
+  H --> I[Repair generated tests]
+  I --> J[Report]
+```
+
+1. **Detect project**: confirms the current directory is a Flutter project and reads `pubspec.yaml`
+2. **Analyze**: uses the Dart `analyzer` package to parse source files into an AST
+3. **Detect state management**: matches structured evidence (dependency names, `package:` imports, class inheritance, widget usage, behavior) and computes a confidence score
+4. **Select adapter**: picks the matching state-management adapter, or the generic adapter for unknown/custom state management
+5. **Build test plan**: decides which files get unit and/or widget tests, at which confidence, and records skip reasons for files it will not touch
+6. **Generate**: writes unit tests for pure functions, validators, formatters, JSON models, and utility classes; writes widget tests asserting real UI signals (`find.text`, `find.byKey`, `find.byType`) wrapped in the adapter's harness
+7. **Run**: executes generated tests via `flutter test`
+8. **Parse failures**: reads `flutter test` output to classify failures
+9. **Repair**: applies deterministic fixes to generated tests only (missing imports, harness wrappers, finder issues), then re-runs them
+10. **Report**: writes sanitized Markdown and JSON reports under `.fluttertest_ai/`
+
+## Generic Fallback
+
+For projects with unknown or custom state management, FlutterTest AI generates conservative behavior-based tests instead of state-aware ones:
+
+- Widget renders without crashing
+- Important content is visible
+- Form validation works
+- Buttons become enabled/disabled correctly
+- Public user actions lead to visible expected results
+- Loading/error states render correctly
+
+Tests are based on public UI signals (text, buttons, keys, forms) rather than private implementation details, so the fallback stays safe even when the underlying state-management approach is not recognized.
+
+## Safety and Privacy
+
+### What FlutterTest AI does:
+- Reads your project's Dart files for analysis
+- Writes generated tests under `test/`
+- Writes reports under `.fluttertest_ai/`
+- Runs `flutter test` locally
+
+### What FlutterTest AI never does:
+- Modifies files under `lib/`
+- Overwrites handwritten test files
+- Transmits source code externally (by default)
+- Adds dependencies to `pubspec.yaml`
+- Claims a test passed unless `flutter test` succeeded
+
+### Privacy
+
+FlutterTest AI is local-first: analysis, generation, execution, and repair all run on your machine, with no network calls. The default AI provider (`DisabledAiProvider`) is disabled and returns no suggestions. Environment-variable values are redacted from saved test output.
+
+### Optional AI provider (opt-in, currently inert)
+
+An `AiProvider` interface exists as an extension point. Two implementations ship today:
+
+- `DisabledAiProvider` — the default. Always disabled, returns no suggestions.
+- `OpenAiCompatibleProvider` — opt-in via the `FLUTTERTEST_AI_ENABLE_EXTERNAL_AI` environment variable. Setting it does not enable any network behaviour: this implementation is currently an inert stub that performs no network calls and always returns an empty suggestion list. It is not wired into any command, so no command's behaviour changes whether or not it is enabled. Treat it as a placeholder for future work, not a working AI feature.
+
+## Limitations and Non-Goals
+
+- Generated tests are heuristics and always need human review
+- No visual regression testing
+- No native iOS/Android dialog testing
+- Never modifies production application code under `lib/`
+- Not every generated test is guaranteed to be logically correct — review before relying on it
+- Complex dependency injection and repository I/O (classes matching `Repository`/`Service` naming, or importing packages like `http`/`sqflite`) are intentionally skipped, with the reason recorded
+- Not every custom state-management solution is supported; unsupported approaches fall back to the conservative generic adapter
+- Detection covers every listed framework, but deeper state-aware harness wrapping is currently implemented for Riverpod only (`ProviderScope`). Other frameworks are detected correctly and generate tests through the generic harness
+- `generate --type integration` writes to `integration_test/`, which `run` and `fix` do not scan. Execute those with `flutter test integration_test/` directly. The test is skipped entirely, with a reason, when the `integration_test` dependency is absent
+- No required cloud service — everything runs locally
+
+## Requirements
+
+- Dart SDK `>=3.4.0 <4.0.0`
+- Flutter (for running generated tests)
+- Windows, macOS, or Linux
+
+## Configuration
+
+No configuration file is required. All options are passed via command-line flags:
+
+| Flag | Command | Description |
+| --- | --- | --- |
+| `--json` | `analyze`, `generate` | Output in JSON format |
+| `--type` | `generate` | Test type: `unit`, `widget`, `integration` |
+| `--dry-run` | `generate` | Preview without writing files |
+| `--force` | `generate` | Refresh previously generated tests |
+
 ## Commands
 
 ### `fluttertest-ai doctor`
@@ -143,98 +272,12 @@ fluttertest-ai fix
 Generates Markdown and JSON reports:
 - Detected state manager
 - Analyzed files and generated tests
-## Supported State Management
+- Test results and confidence scores
+- Skipped files with reasons
 
-| Framework | Detection Method | Test Harness |
-| --- | --- | --- |
-| setState | Widget usage, `setState` calls | Conservative widget harness |
-| Provider / ChangeNotifier | Dependency, imports, inheritance | `MultiProvider` harness |
-| Riverpod | Dependency, imports, Consumer widgets | `ProviderScope` harness |
-| BLoC / Cubit | Dependency, imports, inheritance | `BlocProvider` harness |
-| GetX | Dependency, imports, `GetBuilder` | Conservative fallback |
-| Redux | Dependency, imports, `StoreConnector` | Conservative fallback |
-| MobX | Dependency, imports, `Observer` | Conservative fallback |
-| ValueNotifier | Dependency, imports, `ValueListenableBuilder` | Conservative fallback |
-| Signals | Dependency, imports | Conservative fallback |
-| Custom / unknown | Absence of known evidence | Behavior-based fallback |
-
-## How It Works
-
-```mermaid
-flowchart LR
-  A[Flutter project] --> B[AST analyzer]
-  B --> C[State detector and adapters]
-  C --> D[Test plan]
-  D --> E[Safe writer: test/ only]
-  E --> F[flutter test]
-  F --> G[Sanitized reports]
-  G --> H[Generated-test-only repair]
+```bash
+fluttertest-ai report
 ```
-
-1. **AST Analysis**: Uses the Dart `analyzer` package to parse source code and inspect AST nodes
-2. **State Detection**: Identifies state management from `pubspec.yaml`, imports, inheritance, and widget usage
-3. **Test Planning**: Builds a conservative test plan with confidence scores
-4. **Safe Generation**: Writes tests only under `test/`, never touching `lib/` or handwritten tests
-5. **Execution**: Runs tests through `flutter test` and captures results
-6. **Repair**: Applies deterministic fixes to generated tests only
-
-## Safety and Privacy
-
-### What FlutterTest AI does:
-- Reads your project's Dart files for analysis
-- Writes generated tests under `test/`
-- Writes reports under `.fluttertest_ai/`
-- Runs `flutter test` locally
-
-### What FlutterTest AI never does:
-- Modifies files under `lib/`
-- Overwrites handwritten test files
-- Transmits source code externally (by default)
-- Adds dependencies to `pubspec.yaml`
-- Claims a test passed unless `flutter test` succeeded
-
-### Privacy
-
-The default AI provider is disabled. No source code leaves your machine. An OpenAI-compatible provider is available as an opt-in extension point but requires explicit configuration. Environment-variable values are redacted from saved test output.
-
-## Generic Fallback
-
-For projects with unknown or custom state management, FlutterTest AI generates conservative behavior-based tests:
-
-- Widget renders without crashing
-- Important content is visible
-- Form validation works
-- Buttons become enabled/disabled correctly
-- Public user actions lead to visible expected results
-- Loading/error states render correctly
-
-Tests are based on public UI signals (text, buttons, keys, forms) rather than private implementation details.
-
-## Configuration
-
-No configuration file is required. All options are passed via command-line flags:
-
-| Flag | Command | Description |
-| --- | --- | --- |
-| `--json` | `analyze`, `generate` | Output in JSON format |
-| `--type` | `generate` | Test type: `unit`, `widget`, `integration` |
-| `--dry-run` | `generate` | Preview without writing files |
-| `--force` | `generate` | Refresh previously generated tests |
-
-## Limitations and Non-Goals
-
-- Generated tests are heuristics and always need human review
-- v0.1 has no visual regression testing
-- No native iOS/Android dialog testing
-- No modification of production app code
-- Complex dependency injection and repository I/O are intentionally skipped
-- Not every custom state-management solution is supported
-
-## Requirements
-
-- Dart SDK `>=3.4.0 <4.0.0`
-- Flutter (for running generated tests)
-- Windows, macOS, or Linux
 
 ## Contributing
 
@@ -251,21 +294,3 @@ Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines
 ## License
 
 [MIT License](LICENSE)
-
-- Test results and confidence scores
-- Skipped files with reasons
-
-```bash
-fluttertest-ai report
-```
-
-
-Running generated tests...
-✓ 18 passed
-✗ 2 failed
-
-Repairing generated tests...
-✓ Fixed missing ProviderScope override
-✓ Re-ran tests: 20 passed
-```
-
