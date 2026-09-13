@@ -1,0 +1,49 @@
+# Publish to pub.dev
+#
+# One-time admin setup required before this workflow can do anything
+# (already done once, documented here so it can be redone/verified):
+#   1. https://pub.dev/packages/fluttertest_ai/admin
+#   2. "Automated publishing" -> "Enable publishing from GitHub Actions"
+#   3. Repository:  Raghavaraju-K/fluttertest_ai
+#   4. Tag pattern: v{{version}}
+#      This field must contain exactly one literal `{{version}}`
+#      placeholder. `v*` or an interpolated/expanded string is invalid and
+#      pub.dev will reject it.
+#
+# Trigger contract (do not change without also changing the pub.dev tag
+# pattern above, and keep the two in sync):
+#   - pub.dev only allows automated publishing when the workflow run was
+#     triggered by a tag push. Any other trigger is rejected at publish
+#     time. Do NOT add workflow_dispatch, push.branches, or workflow_run
+#     to this file - any of those would break the tag-scoped OIDC context
+#     pub.dev requires, even if the job otherwise "succeeds".
+#   - The `on.push.tags` glob below is the regex-equivalent of the pub.dev
+#     tag pattern (`{{version}}` -> `[0-9]+.[0-9]+.[0-9]+`).
+#   - `version:` in pubspec.yaml must equal the tag with the leading `v`
+#     stripped (tag v0.2.1 -> pubspec version 0.2.1). release.yml is
+#     responsible for keeping pubspec.yaml, lib/src/version.dart, and the
+#     pushed tag in sync before this workflow ever sees the tag.
+#
+# The reusable dart-lang workflow below already installs the Dart and
+# Flutter SDKs and runs `dart pub publish --dry-run` before the real
+# publish - do not duplicate those steps here.
+name: Publish to pub.dev
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+' # keep in sync with pub.dev tag pattern: v{{version}}
+
+# No top-level `permissions:` block here on purpose: setting job-level
+# `permissions:` replaces the full permission set for that job (it is not
+# additive with a workflow-level default), and the reusable publish
+# workflow needs its default `contents: read` to check out this repo. This
+# is the exact shape from the official pub.dev docs
+# (https://dart.dev/tools/pub/automated-publishing) - do not add a
+# workflow-level `permissions:` block without re-verifying the reusable
+# workflow still gets the read access it needs.
+jobs:
+  publish:
+    permissions:
+      id-token: write # required for OIDC authentication with pub.dev
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1

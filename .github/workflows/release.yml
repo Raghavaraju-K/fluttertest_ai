@@ -1,0 +1,217 @@
+# Release preparation
+#
+# Manually-triggered workflow that prepares a release: bumps the version in
+# both pubspec.yaml and lib/src/version.dart, promotes the CHANGELOG
+# [Unreleased] section (if present), runs the full local quality gate, then
+# commits and pushes a bot-authored commit plus an annotated `v<version>`
+# tag. It never publishes to pub.dev directly - publish.yml (triggered by
+# the tag push) does that.
+#
+# IMPORTANT / VERIFIED LIMITATION - read before relying on this workflow:
+# This job pushes the tag using the default `GITHUB_TOKEN`, as required
+# (no PAT secret is created here). GitHub's own documentation is explicit
+# that "events triggered by the GITHUB_TOKEN will not create a new
+# workflow run" for push events, specifically to prevent recursive runs
+# (see: https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow).
+# There is no documented exception for tag pushes. This means the
+# `v<version>` tag pushed by the final step of this workflow will NOT
+# automatically start publish.yml.
+#
+# Workaround (pick one, see the job summary emitted at the end of this
+# workflow for the same instructions):
+#   1. Manual re-push with human/PAT credentials (no new secret required):
+#      a maintainer with push access runs, from a local clone with the
+#      tag fetched:
+#        git fetch origin "v<version>"
+#        git push origin "v<version>"
+#      A push authenticated as a real user (not GITHUB_TOKEN) does trigger
+#      downstream workflows normally. If the tag already exists locally
+#      pointing at the right commit this is a no-op for git but will still
+#      be treated by GitHub as a new push event from a human identity.
+#      If it reports "up to date" without triggering publish.yml, delete
+#      and recreate the tag instead:
+#        git push origin ":refs/tags/v<version>"
+#        git tag -a "v<version>" -m "Release v<version>" <commit-sha>
+#        git push origin "v<version>"
+#   2. Add a fine-grained PAT or a GitHub App installation token as a
+#      repository secret and swap it in for GITHUB_TOKEN in this
+#      workflow's checkout/push steps. A token that is not GITHUB_TOKEN
+#      does trigger downstream workflows on tag push. This permanently
+#      closes the gap but adds a credential to manage and rotate.
+# Do not "fix" this by adding workflow_dispatch to publish.yml - pub.dev
+# rejects any automated-publish run that was not triggered by a tag push.
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'New version to release, e.g. 0.2.1 (no leading v, no pre-release suffix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version format
+        id: validate_format
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Expected strict semver major.minor.patch, e.g. 0.2.1 (no 'v' prefix, no pre-release/build suffix)."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate version is newer and tag does not already exist
+        id: validate_state
+        env:
+          VERSION: ${{ steps.validate_format.outputs.version }}
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION="$(grep -E '^version:' pubspec.yaml | head -n1 | awk '{print $2}' | tr -d "\"'")"
+          echo "Current pubspec.yaml version: $CURRENT_VERSION"
+          echo "Requested version:            $VERSION"
+
+          IFS='.' read -r cur_major cur_minor cur_patch <<< "$CURRENT_VERSION"
+          IFS='.' read -r new_major new_minor new_patch <<< "$VERSION"
+
+          # Force base-10 interpretation: bash arithmetic treats a
+          # leading-zero numeral (e.g. "08") as octal and errors out on
+          # invalid digits, which a naive `-gt` comparison would hit.
+          cur_major=$((10#$cur_major)); cur_minor=$((10#$cur_minor)); cur_patch=$((10#$cur_patch))
+          new_major=$((10#$new_major)); new_minor=$((10#$new_minor)); new_patch=$((10#$new_patch))
+
+          is_greater=0
+          if [ "$new_major" -gt "$cur_major" ]; then
+            is_greater=1
+          elif [ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -gt "$cur_minor" ]; then
+            is_greater=1
+          elif [ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -eq "$cur_minor" ] && [ "$new_patch" -gt "$cur_patch" ]; then
+            is_greater=1
+          fi
+
+          if [ "$is_greater" -ne 1 ]; then
+            echo "::error::Requested version $VERSION is not strictly greater than the current pubspec.yaml version $CURRENT_VERSION."
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${VERSION} already exists locally."
+            exit 1
+          fi
+
+          if [ -n "$(git ls-remote --tags origin "refs/tags/v${VERSION}")" ]; then
+            echo "::error::Tag v${VERSION} already exists on origin."
+            exit 1
+          fi
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Bump version in pubspec.yaml and lib/src/version.dart
+        env:
+          VERSION: ${{ steps.validate_format.outputs.version }}
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^version: .*/version: ${VERSION}/" pubspec.yaml
+          sed -i -E "s/(const String packageVersion = ')[^']+(';)/\1${VERSION}\2/" lib/src/version.dart
+          grep -E "^version: ${VERSION}$" pubspec.yaml
+          grep -E "packageVersion = '${VERSION}';" lib/src/version.dart
+
+      - name: Promote CHANGELOG [Unreleased] section
+        id: changelog
+        env:
+          VERSION: ${{ steps.validate_format.outputs.version }}
+        run: |
+          set -euo pipefail
+          if grep -q '^## \[Unreleased\]' CHANGELOG.md; then
+            TODAY="$(date -u +%Y-%m-%d)"
+            sed -i -E "s/^## \[Unreleased\]/## [${VERSION}] - ${TODAY}/" CHANGELOG.md
+            echo "promoted=true" >> "$GITHUB_OUTPUT"
+            echo "Promoted CHANGELOG.md [Unreleased] section to [${VERSION}] - ${TODAY}."
+          else
+            echo "promoted=false" >> "$GITHUB_OUTPUT"
+            echo "No [Unreleased] section found in CHANGELOG.md - left the changelog unchanged."
+          fi
+
+      - name: Safety gate - format, analyze, test
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          dart analyze --fatal-infos
+          dart test
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit, tag, and push
+        env:
+          VERSION: ${{ steps.validate_format.outputs.version }}
+        run: |
+          set -euo pipefail
+          git add pubspec.yaml lib/src/version.dart CHANGELOG.md
+          git commit -m "chore(release): bump version to ${VERSION}"
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin HEAD:main
+          git push origin "v${VERSION}"
+
+      - name: Write job summary
+        if: always()
+        env:
+          VERSION: ${{ steps.validate_format.outputs.version }}
+          PROMOTED: ${{ steps.changelog.outputs.promoted }}
+        run: |
+          {
+            echo "# Release v${VERSION} prepared"
+            echo ""
+            echo "- pubspec.yaml and lib/src/version.dart bumped to ${VERSION}"
+            if [ "${PROMOTED}" = "true" ]; then
+              echo "- CHANGELOG.md [Unreleased] section promoted to [${VERSION}]"
+            else
+              echo "- CHANGELOG.md had no [Unreleased] section - left unchanged"
+            fi
+            echo "- Commit and tag v${VERSION} pushed to origin"
+            echo ""
+            echo "## Action required: publish.yml will NOT start automatically"
+            echo ""
+            echo "This workflow pushed the tag using the default \`GITHUB_TOKEN\`."
+            echo "GitHub does not trigger downstream workflows from events created"
+            echo "by \`GITHUB_TOKEN\` (recursion prevention) - there is no exception"
+            echo "for tag pushes. \`publish.yml\` is triggered only by a tag push,"
+            echo "so it must be started by one of:"
+            echo ""
+            echo "1. A maintainer re-pushes the tag with their own credentials:"
+            echo "   \`git fetch origin \"v${VERSION}\" && git push origin \"v${VERSION}\"\`"
+            echo "   If git reports the tag is already up to date and no run starts,"
+            echo "   delete and recreate it instead:"
+            echo "   \`git push origin \":refs/tags/v${VERSION}\"\`"
+            echo "   \`git tag -a \"v${VERSION}\" -m \"Release v${VERSION}\" <commit-sha>\`"
+            echo "   \`git push origin \"v${VERSION}\"\`"
+            echo "2. Or add a fine-grained PAT / GitHub App token as a repository"
+            echo "   secret and use it in place of GITHUB_TOKEN for this workflow's"
+            echo "   checkout and push steps going forward."
+          } >> "$GITHUB_STEP_SUMMARY"

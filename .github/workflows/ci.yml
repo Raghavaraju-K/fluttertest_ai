@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: analyze & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Uses the Flutter SDK (not just Dart) because
+      # test/integration/pipeline_test.dart shells out to the real `flutter`
+      # binary via FlutterTestRunner. subosito/flutter-action also provisions
+      # a bundled `dart`, so no separate dart-lang/setup-dart step is needed.
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # Formatting is platform-independent; only check it once (Linux) to
+      # avoid tripling failure noise from line-ending differences on the
+      # other runners.
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: dart analyze --fatal-infos
+
+      - name: Run tests
+        run: dart test
