@@ -23,8 +23,7 @@ void main() {
     return temp;
   }
 
-  test(
-      'generates unit tests for typed functions, utility classes, and '
+  test('generates unit tests for typed functions, utility classes, and '
       'state containers', () async {
     final root = fixtureCopy('provider_login');
     final analysis = await ProjectService().analyze(root.path);
@@ -67,7 +66,8 @@ void main() {
     expect(content, contains('MaterialApp(home: CounterScreen())'));
     expect(content, contains('testWidgets('));
     expect(content, contains("find.text('Count')"));
-    expect(content, contains("find.byKey(const ValueKey('increment-button'))"));
+    expect(
+        content, contains("find.byKey(const ValueKey('increment-button'))"));
     expect(content, contains('find.byType(ElevatedButton)'));
     expect(content, contains('// fluttertest_ai: generated region begin'));
   });
@@ -82,11 +82,13 @@ void main() {
     final analysis = await ProjectService().analyze(root.path);
     await DartTestWriter().write(TestPlanBuilder().build(analysis), analysis);
     expect(libSnapshot(), before);
-    expect(Directory(p.join(root.path, 'test')).listSync(recursive: true),
+    expect(
+        Directory(p.join(root.path, 'test')).listSync(recursive: true),
         isNotEmpty);
   });
 
-  test('handwritten tests are never overwritten, even with --force', () async {
+  test('handwritten tests are never overwritten, even with --force',
+      () async {
     final root = fixtureCopy('basic_set_state');
     Directory(p.join(root.path, 'test')).createSync();
     final handwritten = File(p.join(root.path, 'test', 'main_widget_test.dart'))
