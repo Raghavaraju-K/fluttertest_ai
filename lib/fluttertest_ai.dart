@@ -1,0 +1,20 @@
+library;
+
+export 'src/adapters/state_management_adapter.dart';
+export 'src/analysis/dart_source_analyzer.dart';
+export 'src/analysis/state_management_detector.dart';
+export 'src/cli/command_runner.dart';
+export 'src/cli/project_service.dart';
+export 'src/execution/flutter_test_runner.dart';
+export 'src/execution/generated_test_repairer.dart';
+export 'src/execution/test_failure_parser.dart';
+export 'src/generation/dart_test_writer.dart';
+export 'src/generation/test_plan_builder.dart';
+export 'src/project/dart_symbols.dart';
+export 'src/project/flutter_project_detector.dart';
+export 'src/project/models.dart';
+export 'src/project/plan_models.dart';
+export 'src/reporting/console_reporter.dart';
+export 'src/reporting/markdown_json_reporter.dart';
+export 'src/templates/templates.dart';
+export 'src/version.dart';

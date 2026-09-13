@@ -1,0 +1,23 @@
+# Dart/Flutter
+.dart_tool/
+.packages
+.pub-cache/
+pubspec.lock
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tool outputs
+.fluttertest_ai/
+
+# Don't lock fixture pubspecs (they're test fixtures)
+test/fixtures/*/pubspec.lock
